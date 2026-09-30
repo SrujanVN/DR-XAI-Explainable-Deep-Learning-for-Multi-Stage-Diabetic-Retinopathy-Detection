@@ -2,6 +2,7 @@
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, current_app, session, flash, jsonify, send_file
 import os
 import uuid
+import secrets
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 import cv2
@@ -56,12 +57,15 @@ except ImportError:
 
 
 app = Flask(__name__)
+from backend.config import Config
+app.config.from_object(Config)
 
 # Configuration
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-change-this-in-production')
-app.config['MONGODB_URI'] = os.getenv('MONGODB_URI', 'mongodb://127.0.0.1:27017/')
-app.config['MONGODB_DB_NAME'] = os.getenv('MONGODB_DB_NAME', 'thilak')
-app.config['MAX_CONTENT_LENGTH'] = 13 * 1024 * 1024
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY') or secrets.token_hex(32)
+app.config['MONGODB_URI'] = os.getenv('MONGODB_URI')
+app.config['MONGODB_DB_NAME'] = os.getenv('DATABASE_NAME', os.getenv('MONGODB_DB_NAME', 'dr_xai'))
+app.config['MAX_CONTENT_LENGTH'] = 12 * 1024 * 1024
+app.config['DRXAI_UPLOAD_DIR'] = app.config['UPLOAD_DIR']
 
 
 @app.after_request
@@ -76,7 +80,7 @@ def configure_frontend_cors(response):
 @app.errorhandler(413)
 def request_too_large(error):
     if request.path.startswith('/api/'):
-        return jsonify({"error": "Image must be 12 MB or smaller."}), 413
+        return jsonify({"success": False, "error": {"code": "FILE_TOO_LARGE", "message": "Image must be 12 MB or smaller."}}), 413
     return "Uploaded file is too large.", 413
 
 # Configuration for uploaded files
@@ -131,61 +135,10 @@ def index():
     return render_template('landing.html')
 
 
-@app.route('/api/health')
-def api_health():
-    """Expose whether model inference is available to the standalone frontend."""
-    loaded_models = current_app.config.get('LOADED_MODELS', {})
-    available = isinstance(loaded_models, dict) and any(model is not None for model in loaded_models.values())
-    return jsonify({"status": "ok", "inference_available": available})
-
-
-@app.route('/api/predict', methods=['POST'])
-def api_predict():
-    """Model-agnostic JSON inference endpoint for the React research interface."""
-    image_file = request.files.get('image')
-    if not image_file or not image_file.filename:
-        return jsonify({"error": "Choose a retinal image to analyze."}), 400
-    if os.path.splitext(image_file.filename)[1].lower() not in {'.jpg', '.jpeg', '.png'}:
-        return jsonify({"error": "Use a JPG, JPEG, or PNG image."}), 415
-    image_file.stream.seek(0, os.SEEK_END)
-    if image_file.stream.tell() > 12 * 1024 * 1024:
-        return jsonify({"error": "Image must be 12 MB or smaller."}), 413
-    image_file.stream.seek(0)
-    loaded_models = current_app.config.get('LOADED_MODELS', {})
-    if not isinstance(loaded_models, dict) or not any(model is not None for model in loaded_models.values()):
-        return jsonify({"error": "No trained models are currently loaded by the backend."}), 503
-
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    safe_name = secure_filename(image_file.filename) or 'fundus-image.jpg'
-    saved_name = f"{uuid.uuid4()}_api_{safe_name}"
-    saved_path = os.path.join(app.config['UPLOAD_FOLDER'], saved_name)
-    image_file.save(saved_path)
-    try:
-        processed = preprocess_image_inference(saved_path, image_size=IMAGE_SIZE)
-        if processed is None:
-            return jsonify({"error": "The uploaded file could not be decoded as an image."}), 400
-        tensor = inference_transform(processed).unsqueeze(0)
-        outcome = predict_ensemble(tensor, loaded_models)
-        if not outcome or outcome.get('ensemble_prediction') is None:
-            return jsonify({"error": "The loaded models could not produce a prediction."}), 503
-        valid = [row for row in outcome.get('individual_results', {}).values() if 'error' not in row]
-        votes = Counter(row['predicted_class'] for row in valid)
-        probabilities = [votes.get(index, 0) / len(valid) for index in range(5)]
-        predicted = int(outcome['ensemble_prediction'])
-        labels = ["No DR", "Mild", "Moderate", "Severe", "Proliferative DR"]
-        return jsonify({
-            "predicted_class": predicted,
-            "class_name": labels[predicted],
-            "confidence": probabilities[predicted],
-            "probabilities": probabilities,
-            "model_name": os.getenv('MODEL_NAME', 'Ensemble (majority vote)'),
-            "model_version": os.getenv('MODEL_VERSION', 'current-checkpoints'),
-            "model_status": "research-baseline",
-            "image_url": url_for('static', filename=f'uploaded_images/{saved_name}')
-        })
-    finally:
-        # Retain the uploaded image so the result view can reference it.
-        pass
+from backend.routes.analysis import analysis_api
+from backend.routes.health import health_api
+app.register_blueprint(analysis_api)
+app.register_blueprint(health_api)
 
 
 @app.route('/upload')
@@ -490,13 +443,20 @@ if __name__ == '__main__':
 
     # Initialize database
     print("\nInitializing database connection...")
-    if init_db(app):
+    from backend.database.mongodb import store
+    if store.connect(app.config['MONGODB_URI'], app.config['MONGODB_DB_NAME']):
+        print('✓ Analysis database connected')
+    else:
+        print('⚠ Analysis database unavailable; database-backed API routes will return 503.')
+    if app.config['MONGODB_URI'] and init_db(app):
         print("✓ Application ready to start")
     else:
-        print("⚠ Warning: Database connection failed. Some features may not work.")
+        print("⚠ Legacy account/history storage is unavailable.")
 
     try:
         app.run(debug=True)
     finally:
         # Close database connection when app shuts down
+        from backend.database.mongodb import store
+        store.close()
         close_db()

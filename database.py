@@ -29,8 +29,7 @@ class Database:
             # Get connection string from parameter, env variable, or use default
             if connection_string is None:
                 connection_string = os.getenv(
-                    'MONGODB_URI', 
-                    'mongodb://127.0.0.1:27017/'
+                    'MONGODB_URI'
                 )
             
             # Create MongoDB client
@@ -43,17 +42,17 @@ class Database:
             self.client.admin.command('ping')
             
             # Connect to database (you can change 'thilak' to your preferred DB name)
-            db_name = os.getenv('MONGODB_DB_NAME', 'thilak')
+            db_name = os.getenv('DATABASE_NAME', os.getenv('MONGODB_DB_NAME', 'dr_xai'))
             self.db = self.client[db_name]
             
             print(f"✓ Successfully connected to MongoDB database: {db_name}")
             return True
             
         except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            print(f"✗ Failed to connect to MongoDB: {e}")
+            print("✗ Failed to connect to MongoDB.")
             return False
         except Exception as e:
-            print(f"✗ Unexpected error connecting to MongoDB: {e}")
+            print("✗ Unexpected error connecting to MongoDB.")
             return False
     
     def disconnect(self):
@@ -262,5 +261,3 @@ def close_db():
     """Close database connection"""
     db.disconnect()
     print("✓ Database connection closed")
-
-
