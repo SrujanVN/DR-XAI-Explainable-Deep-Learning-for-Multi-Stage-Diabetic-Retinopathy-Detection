@@ -1,0 +1,15 @@
+.env
+__pycache__/
+static/uploaded_images/
+*.log
+models/
+*.pth
+Notebook and results/
+all_model_plots/
+*.ipynb
+node_modules/
+static/dr-xai/
+frontend-dist/
+dist/
+.venv/
+get-pip.py

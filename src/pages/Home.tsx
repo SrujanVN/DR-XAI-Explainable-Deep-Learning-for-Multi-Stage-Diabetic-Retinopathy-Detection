@@ -1,0 +1,18 @@
+import { ArrowRight, ArrowUpRight, Microscope, MoveUpRight, ShieldCheck } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Disclaimer } from '../components/Shell';
+import { RetinaGraphic } from '../components/RetinaGraphic';
+import type { Page } from '../types';
+
+const classes = [
+  ['00', 'No DR', 'No diabetic retinopathy grade'], ['01', 'Mild', 'Mild non-proliferative changes'], ['02', 'Moderate', 'Moderate non-proliferative changes'], ['03', 'Severe', 'Severe non-proliferative changes'], ['04', 'Proliferative DR', 'Proliferative retinopathy grade'],
+];
+export default function Home({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  return <div className="page-wrap home-page">
+    <section className="hero"><div className="hero-copy"><div className="eyebrow"><span className="eyebrow-dot"/> EXPLAINABLE MEDICAL IMAGING <span className="eyebrow-line"/></div><motion.h1 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .55 }}>A clearer view<br/>of <span>retinal AI.</span></motion.h1><p className="hero-description">An AI-assisted research platform for exploring retinal fundus image classification and model explainability.</p><div className="hero-actions"><button className="button button-primary button-large" onClick={() => onNavigate('Analysis')}>Analyze retinal image <ArrowRight size={17}/></button><button className="button button-quiet" onClick={() => onNavigate('Research')}>Explore the research <ArrowUpRight size={16}/></button></div><div className="hero-note"><ShieldCheck size={15}/> Experimental model · Research use only</div></div><RetinaGraphic/></section>
+    <section className="facts-strip" aria-label="Project facts"><div className="fact-item"><span className="fact-number">05</span><span><b>Severity classes</b><small>Ordinal task</small></span></div><div className="fact-item"><span className="fact-number">70<span className="fact-slash">/</span>15<span className="fact-slash">/</span>15</span><span><b>Research split</b><small>Train · validation · test</small></span></div><div className="fact-item"><span className="fact-number fact-model">ResNeXt<span>50</span></span><span><b>Current baseline</b><small>Model can be replaced</small></span></div><div className="fact-item"><span className="fact-number">QWK</span><span><b>Primary metric</b><small>Ordinal agreement</small></span></div></section>
+    <section className="section-block"><div className="section-heading"><div><div className="eyebrow"><span className="eyebrow-dot"/> CLASSIFICATION FRAMEWORK</div><h2>Five grades. One research question.</h2><p>Severity labels used in the current research baseline.</p></div><button className="text-link" onClick={() => onNavigate('Research')}>Research methodology <MoveUpRight size={15}/></button></div><div className="grade-track">{classes.map(([n, label, desc], i) => <article className="grade-card" key={n}><div className={`grade-mark grade-${i}`}>{n}</div><div className="grade-index">GRADE {n}</div><h3>{label}</h3><p>{desc}</p><div className="grade-rail"><span style={{ width: `${(i + 1) * 20}%` }}/></div></article>)}</div></section>
+    <section className="home-research"><div className="research-icon"><Microscope size={21}/></div><div><span className="eyebrow">RESEARCH BASELINE</span><h2>Built to change as the research evolves.</h2><p>The interface consumes a standardized prediction contract. The current Flask service runs available model checkpoints and can be swapped for a future calibrated model without changing the user experience.</p></div><button className="button button-light" onClick={() => onNavigate('Research')}>View research details <ArrowRight size={16}/></button></section>
+    <Disclaimer compact/>
+  </div>;
+}

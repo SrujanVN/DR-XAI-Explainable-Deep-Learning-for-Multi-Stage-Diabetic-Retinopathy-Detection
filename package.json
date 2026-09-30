@@ -1,0 +1,11 @@
+{
+  "name": "dr-xai-research-interface",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": { "dev": "vite --configLoader runner", "build": "tsc -b && vite build --configLoader runner && vite build --configLoader runner --base / --outDir dist", "preview": "vite preview --configLoader runner --outDir dist --base /" },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4", "framer-motion": "^12.23.0", "lucide-react": "^0.468.0", "react": "^18.3.1", "react-dom": "^18.3.1", "vite": "^6.0.0"
+  },
+  "devDependencies": { "@types/react": "^18.3.12", "@types/react-dom": "^18.3.1", "typescript": "^5.7.2", "tailwindcss": "^3.4.16", "postcss": "^8.4.49", "autoprefixer": "^10.4.20" }
+}
