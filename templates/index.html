@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Image{% endblock %}
+
+{% block content %}
+<div class="card" id="upload-card">
+    <h1>Diabetic Retinopathy Detection</h1>
+    <p>Upload a fundus image to begin the AI-powered analysis for diabetic retinopathy. Please provide patient details for record-keeping.</p>
+    <form id="uploadForm" action="{{ url_for('process_images') }}" method="post" enctype="multipart/form-data">
+        <div class="form-group">
+            <label for="patient_name">Patient Name:</label>
+            <input type="text" name="patient_name" id="patient_name" placeholder="e.g., John Doe">
+        </div>
+        <div class="form-group">
+            <label for="patient_age">Patient Age:</label>
+            <input type="number" name="patient_age" id="patient_age" min="0" placeholder="e.g., 58">
+        </div>
+        <div class="form-group">
+            <label for="fundus_image">Upload Fundus Image:</label>
+            <input type="file" name="fundus_image" id="fundus_image" accept="image/*" required>
+        </div>
+        <button type="submit" class="btn-submit">Process Image</button>
+    </form>
+</div>
+
+{% if error_message %}
+    <div class="card" style="background-color: #f8d7da; color: #721c24;">
+        <h3 style="color: #721c24;">An Error Occurred</h3>
+        <p>{{ error_message }}</p>
+    </div>
+{% endif %}
+{% endblock %}
