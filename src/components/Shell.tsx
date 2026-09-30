@@ -5,7 +5,7 @@ import type { Page } from '../types';
 
 const navItems: { label: Page; icon: typeof Home }[] = [
   { label: 'Home', icon: Home }, { label: 'Analysis', icon: ScanLine }, { label: 'Results', icon: Activity },
-  { label: 'Research', icon: FlaskConical }, { label: 'Reports', icon: FileText }, { label: 'About', icon: Info },
+  { label: 'History', icon: Activity }, { label: 'Research', icon: FlaskConical }, { label: 'Reports', icon: FileText }, { label: 'About', icon: Info },
 ];
 
 export function Shell({ page, onNavigate, children }: { page: Page; onNavigate: (page: Page) => void; children: ReactNode }) {
