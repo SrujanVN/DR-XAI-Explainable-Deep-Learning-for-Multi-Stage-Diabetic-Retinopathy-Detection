@@ -14,5 +14,6 @@ static/dr-xai/
 frontend-dist/
 dist/
 .venv/
+.venv-runtime/
 get-pip.py
 backend/uploads/
