@@ -128,3 +128,23 @@ def denoise_image(image_path, image_size=IMAGE_SIZE, clipLimit=2.0, tileGridSize
 
 
     return img_resized # Return as RGB NumPy array
+
+
+def save_preprocessing_views(image_path, output_dir):
+    """Save the exact filtered inference view and CLAHE green-channel view for results."""
+    os.makedirs(output_dir, exist_ok=True)
+    stem = os.path.splitext(os.path.basename(image_path))[0]
+    views = {
+        'filtered_file': preprocess_image_inference(image_path, image_size=IMAGE_SIZE),
+        'clahe_green_file': denoise_image(image_path, image_size=IMAGE_SIZE),
+    }
+    saved = {}
+    for key, image_rgb in views.items():
+        if image_rgb is None:
+            saved[key] = None
+            continue
+        filename = f'{stem}_{key.removesuffix("_file")}.png'
+        path = os.path.join(output_dir, filename)
+        image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+        saved[key] = filename if cv2.imwrite(path, image_bgr) else None
+    return saved

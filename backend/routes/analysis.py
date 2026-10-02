@@ -62,8 +62,6 @@ def list_analyses():
         limit = min(100, max(1, int(request.args.get('limit', 20))))
     except (TypeError, ValueError):
         return error('INVALID_PAGINATION', 'Page and limit must be positive integers.', 400)
-    if not store.ping():
-        return error('DATABASE_UNAVAILABLE', 'Database unavailable.', 503)
     try:
         items = [serialize_document(item) for item in store.list((page - 1) * limit, limit)]
         return success({'items': items, 'page': page, 'limit': limit, 'total': store.count()})
@@ -75,8 +73,6 @@ def list_analyses():
 def get_analysis(analysis_id):
     if not valid_analysis_id(analysis_id):
         return error('INVALID_ANALYSIS_ID', 'The analysis ID is invalid.', 400)
-    if not store.ping():
-        return error('DATABASE_UNAVAILABLE', 'Database unavailable.', 503)
     try:
         document = store.get(analysis_id)
     except PyMongoError:
@@ -90,8 +86,6 @@ def get_analysis(analysis_id):
 def get_analysis_image(analysis_id):
     if not valid_analysis_id(analysis_id):
         return error('INVALID_ANALYSIS_ID', 'The analysis ID is invalid.', 400)
-    if not store.ping():
-        return error('DATABASE_UNAVAILABLE', 'Database unavailable.', 503)
     document = store.get(analysis_id)
     if document is None:
         return error('ANALYSIS_NOT_FOUND', 'Analysis was not found.', 404)
@@ -99,12 +93,46 @@ def get_analysis_image(analysis_id):
     return send_from_directory(current_app.config['DRXAI_UPLOAD_DIR'], filename)
 
 
+@analysis_api.get('/api/analyses/<analysis_id>/preprocessing/<view_name>')
+def get_analysis_preprocessing_view(analysis_id, view_name):
+    if not valid_analysis_id(analysis_id):
+        return error('INVALID_ANALYSIS_ID', 'The analysis ID is invalid.', 400)
+    fields = {'filtered': 'filtered_file', 'clahe-green': 'clahe_green_file'}
+    field = fields.get(view_name)
+    if field is None:
+        return error('INVALID_PREPROCESSING_VIEW', 'The requested preprocessing view is unavailable.', 404)
+    document = store.get(analysis_id)
+    if document is None:
+        return error('ANALYSIS_NOT_FOUND', 'Analysis was not found.', 404)
+    filename = document.get('preprocessing', {}).get(field)
+    if not filename:
+        return error('PREPROCESSING_VIEW_UNAVAILABLE', 'This preprocessing view was not saved for the analysis.', 404)
+    return send_from_directory(current_app.config['DRXAI_UPLOAD_DIR'], filename, mimetype='image/png')
+
+
+@analysis_api.get('/api/analyses/<analysis_id>/explanations/<explanation_type>')
+@analysis_api.get('/api/analyses/<analysis_id>/explanations/<explanation_type>/<model_name>')
+def get_analysis_explanation(analysis_id, explanation_type, model_name=None):
+    if not valid_analysis_id(analysis_id):
+        return error('INVALID_ANALYSIS_ID', 'The analysis ID is invalid.', 400)
+    if explanation_type not in {'gradcam', 'shap'}:
+        return error('INVALID_EXPLANATION', 'The requested explanation is unavailable.', 404)
+    document = store.get(analysis_id)
+    if document is None:
+        return error('ANALYSIS_NOT_FOUND', 'Analysis was not found.', 404)
+    explanation = document.get('explainability', {})
+    if model_name:
+        explanation = explanation.get('models', {}).get(model_name, {})
+    filename = explanation.get(f'{explanation_type}_file')
+    if not explanation.get(f'{explanation_type}_available') or not filename:
+        return error('EXPLANATION_UNAVAILABLE', 'This explanation could not be generated for the analysis.', 404)
+    return send_from_directory(current_app.config['DRXAI_UPLOAD_DIR'], filename, mimetype='image/png')
+
+
 @analysis_api.post('/api/analyses/<analysis_id>/report')
 def mark_report_generated(analysis_id):
     if not valid_analysis_id(analysis_id):
         return error('INVALID_ANALYSIS_ID', 'The analysis ID is invalid.', 400)
-    if not store.ping():
-        return error('DATABASE_UNAVAILABLE', 'Database unavailable.', 503)
     try:
         metadata = generated_report_metadata(analysis_id)
         if not store.set_report_metadata(analysis_id, metadata):

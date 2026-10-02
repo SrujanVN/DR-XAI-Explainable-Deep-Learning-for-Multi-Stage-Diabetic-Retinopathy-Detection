@@ -3,8 +3,8 @@ import torch
 import torch.nn as nn
 import timm
 import os
+from pathlib import Path
 import numpy as np
-from collections import Counter
 
 # --- Define the Device ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -15,20 +15,20 @@ print(f"Using device for models: {device}")
 MODEL_CONFIGS = {
     'resnet18': {
         'timm_name': 'resnet18',
-        'weights_path': 'models/resnet18_best_weights.pth' # Verify filename matches your saved file
+        'weights_path': 'models/resnet18_best_weights.pth'
     },
     'densenet121': {
         'timm_name': 'densenet121',
-        'weights_path': 'models/densenet121_best_weights.pth' # Verify filename
+        'weights_path': 'models/densenet121_best_weights.pth'
     },
     # Add other models here as they finish training:
     'efficientnet_b0': { # <-- UNCOMMENT AND ADD/VERIFY THIS ENTRY
         'timm_name': 'efficientnet_b0', # Verify exact timm name used during training
-        'weights_path': 'models/efficientnet_b0_best_weights.pth' # Verify filename matches screenshot
+        'weights_path': 'models/efficientnet_b0_best_weights.pth'
     },
     'resnext50_32x4d': { # <-- UNCOMMENT AND ADD/VERIFY THIS ENTRY
         'timm_name': 'resnext50_32x4d', # Verify exact timm name
-        'weights_path': 'models/resnext50_32x4d_best_weights.pth' # Verify filename matches screenshot
+        'weights_path': 'models/resnext50_32x4d_best_weights.pth'
     },
     # 'regnety_008': { # <-- UNCOMMENT AND ADD/VERIFY THIS ENTRY
     #     'timm_name': 'regnety_008', # Verify exact timm name used during training (e.g., regnety_008)
@@ -38,6 +38,7 @@ MODEL_CONFIGS = {
 }
 
 NUM_CLASSES = 5
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # --- Load Trained Models (This function loads and returns) ---
 def load_trained_models(model_configs=MODEL_CONFIGS):
@@ -65,18 +66,21 @@ def load_trained_models(model_configs=MODEL_CONFIGS):
              loaded_models[name] = None
              continue
 
-        if not os.path.exists(weights_path):
-            print(f"Warning: Model weights not found for {name} at {weights_path}. Skipping.")
+        resolved_weights_path = Path(weights_path)
+        if not resolved_weights_path.is_absolute():
+            resolved_weights_path = PROJECT_ROOT / resolved_weights_path
+        if not resolved_weights_path.is_file():
+            print(f"Warning: Model weights not found for {name} at {resolved_weights_path}. Skipping.")
             loaded_models[name] = None
             continue
 
         try:
-            print(f"Loading {name} from {weights_path}...")
+            print(f"Loading {name} from {resolved_weights_path}...")
             # Create the model architecture (pretrained=False as we load our own weights)
             model = timm.create_model(timm_name, pretrained=False, num_classes=NUM_CLASSES)
 
             # Load the saved state dictionary
-            state_dict = torch.load(weights_path, map_location=device, weights_only=True)
+            state_dict = torch.load(resolved_weights_path, map_location=device, weights_only=True)
 
             # Load the state dict into the model
             model.load_state_dict(state_dict)
@@ -126,7 +130,7 @@ def predict_ensemble(image_tensor, loaded_models):
         return None
 
     individual_results = {}
-    successful_predictions = []
+    successful_probabilities = []
 
     with torch.no_grad():
         for name, model in loaded_models.items():
@@ -154,22 +158,23 @@ def predict_ensemble(image_tensor, loaded_models):
                     'confidence': confidence,
                     'probabilities': probs[0].cpu().numpy().tolist()
                 }
-                successful_predictions.append(predicted_class)
+                successful_probabilities.append(probs[0].detach().cpu())
 
 
             except Exception as e:
                 print(f"Error during inference for model {name}: {e}")
                 individual_results[name] = {'error': str(e)}
 
-    # --- Ensemble Prediction (Majority Voting) ---
+    # --- Ensemble Prediction (soft vote over each successful model) ---
     ensemble_prediction = None
-    ensemble_confidence_fraction = 0.0
+    ensemble_probabilities = []
+    ensemble_confidence = 0.0
 
-    if successful_predictions:
-        vote_counts = Counter(successful_predictions)
-        winning_class, winning_vote_count = vote_counts.most_common(1)[0]
-        ensemble_prediction = winning_class
-        ensemble_confidence_fraction = winning_vote_count / len(successful_predictions) if successful_predictions else 0.0
+    if successful_probabilities:
+        mean_probabilities = torch.stack(successful_probabilities).mean(dim=0)
+        ensemble_prediction = int(mean_probabilities.argmax().item())
+        ensemble_probabilities = mean_probabilities.tolist()
+        ensemble_confidence = float(mean_probabilities[ensemble_prediction].item())
 
     else:
         print("No successful model predictions to form ensemble.")
@@ -187,9 +192,9 @@ def predict_ensemble(image_tensor, loaded_models):
         model_results_text += "No individual model results available.\n"
 
 
-    model_results_text += f"\nEnsemble Prediction (Majority Vote):\n"
+    model_results_text += f"\nEnsemble Prediction (Mean Probability):\n"
     if ensemble_prediction is not None:
-        model_results_text += f"- Predicted Stage: {ensemble_prediction} (Confidence: {ensemble_confidence_fraction:.4f} of successful models)\n"
+        model_results_text += f"- Predicted Stage: {ensemble_prediction} (Confidence: {ensemble_confidence:.4f})\n"
     elif individual_results:
         model_results_text += "- Could not determine (no clear majority or all failed).\n"
     else:
@@ -199,7 +204,9 @@ def predict_ensemble(image_tensor, loaded_models):
     return {
         'individual_results': individual_results,
         'ensemble_prediction': ensemble_prediction,
-        'ensemble_confidence_fraction': ensemble_confidence_fraction,
+        'ensemble_probabilities': ensemble_probabilities,
+        'ensemble_confidence': ensemble_confidence,
+        'successful_model_count': len(successful_probabilities),
         'model_results_text': model_results_text
     }
 
