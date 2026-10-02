@@ -1,6 +1,7 @@
 import type { AnalysisRecord, ModelPrediction } from '../types';
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') || '/api';
+const CLASS_NAMES = ['No DR', 'Mild', 'Moderate', 'Severe', 'Proliferative DR'];
 type ApiEnvelope<T> = { success: true; data: T } | { success: false; error?: { message?: string } };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -23,21 +24,51 @@ export async function checkModelAvailability(): Promise<boolean> {
 
 function toPrediction(record: AnalysisRecord): ModelPrediction {
   const probabilities = record.prediction.probabilities;
-  const values = Array.isArray(probabilities)
+  let values = Array.isArray(probabilities)
     ? probabilities
     : ['No_DR', 'Mild', 'Moderate', 'Severe', 'Proliferative_DR'].map(key => probabilities[key] ?? 0);
+  const individualModels = record.prediction.individual_models ?? {};
+  const individualRows = Object.values(individualModels).map(model => model.probabilities);
+  if (individualRows.length === 4 && individualRows.every(row => row.length === CLASS_NAMES.length)) {
+    values = CLASS_NAMES.map((_, index) => individualRows.reduce((total, row) => total + row[index], 0) / individualRows.length);
+  }
+  const probabilityClass = values.reduce((best, value, index) => value > values[best] ? index : best, 0);
+  const consistencyCorrected = record.prediction.class !== probabilityClass;
+  const hasPerModelExplanations = Object.keys(record.explainability.models ?? {}).length > 0;
+  const legacyExplanationMatchesDisplayedClass = !consistencyCorrected || hasPerModelExplanations;
+  const explanationBase = `${apiBase}/analyses/${encodeURIComponent(record.analysis_id)}/explanations`;
   return {
     analysis_id: record.analysis_id,
     created_at: record.created_at,
-    predicted_class: record.prediction.class,
-    class_name: record.prediction.class_name,
-    confidence: record.prediction.confidence,
+    predicted_class: probabilityClass,
+    class_name: CLASS_NAMES[probabilityClass],
+    confidence: values[probabilityClass],
     probabilities: values,
+    consistency_corrected: consistencyCorrected,
+    individual_models: individualModels,
     model_name: record.model.name,
     model_version: record.model.version,
     model_status: 'research-baseline',
     image_url: `${apiBase}/analyses/${encodeURIComponent(record.analysis_id)}/image`,
-    explainability: record.explainability,
+    preprocessing: {
+      filtered_url: record.preprocessing?.filtered_file ? `${apiBase}/analyses/${encodeURIComponent(record.analysis_id)}/preprocessing/filtered` : undefined,
+      clahe_green_url: record.preprocessing?.clahe_green_file ? `${apiBase}/analyses/${encodeURIComponent(record.analysis_id)}/preprocessing/clahe-green` : undefined,
+    },
+    explainability: {
+      gradcam_available: record.explainability.gradcam_available && legacyExplanationMatchesDisplayedClass,
+      shap_available: record.explainability.shap_available && legacyExplanationMatchesDisplayedClass,
+      gradcam_url: record.explainability.gradcam_available && legacyExplanationMatchesDisplayedClass ? `${apiBase}/analyses/${encodeURIComponent(record.analysis_id)}/explanations/gradcam` : undefined,
+      shap_url: record.explainability.shap_available && legacyExplanationMatchesDisplayedClass ? `${apiBase}/analyses/${encodeURIComponent(record.analysis_id)}/explanations/shap` : undefined,
+      explanation_model: record.explainability.explanation_model ?? undefined,
+      target_class: record.explainability.target_class,
+      models: Object.fromEntries(Object.entries(record.explainability.models ?? {}).map(([name, item]) => [name, {
+        target_class: item.target_class,
+        gradcam_available: item.gradcam_available,
+        shap_available: item.shap_available,
+        gradcam_url: item.gradcam_available ? `${explanationBase}/gradcam/${encodeURIComponent(name)}` : undefined,
+        shap_url: item.shap_available ? `${explanationBase}/shap/${encodeURIComponent(name)}` : undefined,
+      }])),
+    },
   };
 }
 
