@@ -1,6 +1,7 @@
 """Generate model-specific Grad-CAM and SHAP image overlays."""
 import logging
 import os
+import hashlib
 
 import cv2
 import numpy as np
@@ -12,6 +13,17 @@ from utils.preprocessing import IMAGE_SIZE, preprocess_image_inference
 from backend.services.model_service import TRANSFORM
 
 logger = logging.getLogger(__name__)
+
+MODEL_FILE_KEYS = {
+    'resnet18': 'r18',
+    'densenet121': 'dense121',
+    'efficientnet_b0': 'effb0',
+    'resnext50_32x4d': 'rx50',
+}
+
+
+def _model_file_key(model_name):
+    return MODEL_FILE_KEYS.get(model_name, hashlib.sha1(model_name.encode('utf-8')).hexdigest()[:8])
 
 
 def _shap_map(model, input_tensor, target_class):
@@ -29,7 +41,7 @@ def _shap_map(model, input_tensor, target_class):
     selected_model = SelectedClass(model, target_class)
     background = torch.zeros_like(input_tensor)
     explainer = shap.GradientExplainer(selected_model, background, batch_size=1)
-    values = explainer.shap_values(input_tensor, nsamples=24, rseed=0)
+    values = explainer.shap_values(input_tensor, nsamples=8, rseed=0)
     if isinstance(values, list):
         values = values[0]
 
@@ -78,6 +90,7 @@ def generate_explanations(image_path, loaded_models, prediction, upload_dir):
         if model is None:
             continue
         target_class = int(model_prediction['predicted_class'])
+        model_file_key = _model_file_key(model_name)
         model_result = {
             'target_class': target_class,
             'gradcam_available': False,
@@ -93,25 +106,36 @@ def generate_explanations(image_path, loaded_models, prediction, upload_dir):
             result['models'][model_name] = model_result
             continue
         try:
-            gradcam_path = os.path.join(upload_dir, f'{filename}_{model_name}_gradcam.png')
-            overlay = generate_gradcam_overlay(model, input_tensor, original_rgb, target_class)
+            gradcam_path = os.path.join(upload_dir, f'{filename}_{model_file_key}_gradcam.png')
+            with torch.enable_grad():
+                overlay = generate_gradcam_overlay(model, input_tensor, original_rgb, target_class)
             if overlay is not None and cv2.imwrite(gradcam_path, overlay):
                 model_result['gradcam_available'] = True
                 model_result['gradcam_file'] = os.path.basename(gradcam_path)
         except Exception:
             logger.exception('Grad-CAM generation failed for model %s, analysis %s', model_name, filename)
 
+        result['models'][model_name] = model_result
+
+    # Generate every Grad-CAM before starting SHAP. SHAP's gradient hooks can
+    # otherwise interfere with subsequent Grad-CAM passes in the same request.
+    for model_name, model_prediction in individual_models.items():
+        model = loaded_models.get(model_name)
+        model_result = result['models'].get(model_name)
+        if model is None or model_result is None:
+            continue
+        model_file_key = _model_file_key(model_name)
         try:
+            input_tensor = TRANSFORM(processed).unsqueeze(0).to(next(model.parameters()).device)
             with torch.enable_grad():
-                saliency = _shap_map(model, input_tensor, target_class)
-            shap_path = os.path.join(upload_dir, f'{filename}_{model_name}_shap.png')
+                saliency = _shap_map(model, input_tensor, int(model_prediction['predicted_class']))
+            shap_path = os.path.join(upload_dir, f'{filename}_{model_file_key}_shap.png')
             overlay = show_cam_on_image(original_rgb, saliency, use_rgb=True)
             if cv2.imwrite(shap_path, overlay):
                 model_result['shap_available'] = True
                 model_result['shap_file'] = os.path.basename(shap_path)
         except Exception:
             logger.exception('SHAP generation failed for model %s, analysis %s', model_name, filename)
-        result['models'][model_name] = model_result
 
     result['gradcam_available'] = any(item['gradcam_available'] for item in result['models'].values())
     result['shap_available'] = any(item['shap_available'] for item in result['models'].values())

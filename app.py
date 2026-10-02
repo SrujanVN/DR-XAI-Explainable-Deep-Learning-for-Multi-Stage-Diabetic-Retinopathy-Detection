@@ -12,8 +12,14 @@ import torch
 from torchvision import transforms
 import markdown2
 import datetime
+import sys
 from collections import Counter
 from dotenv import load_dotenv
+
+# Startup and legacy route logs include status glyphs. Keep them safe on Windows
+# consoles that otherwise use a code page which cannot encode those characters.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 load_dotenv()
 
@@ -447,14 +453,16 @@ if __name__ == '__main__':
     if store.connect(app.config['MONGODB_URI'], app.config['MONGODB_DB_NAME']):
         print('✓ Analysis database connected')
     else:
-        print('⚠ Analysis database unavailable; database-backed API routes will return 503.')
+        print('⚠ MongoDB unavailable; analyses will use temporary in-memory storage.')
     if app.config['MONGODB_URI'] and init_db(app):
         print("✓ Application ready to start")
     else:
         print("⚠ Legacy account/history storage is unavailable.")
 
     try:
-        app.run(debug=True)
+        # The models are loaded above before serving; avoid reloading the process
+        # in Flask's debug reloader, which otherwise loads every checkpoint twice.
+        app.run(host='127.0.0.1', port=int(os.getenv('DRXAI_PORT', '5001')), debug=False, use_reloader=False)
     finally:
         # Close database connection when app shuts down
         from backend.database.mongodb import store
